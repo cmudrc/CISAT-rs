@@ -1,47 +1,30 @@
-[![Build Status](https://travis-ci.com/THREDgroup/CISAT-rs.svg?branch=master)](https://travis-ci.com/THREDgroup/CISAT-rs)
+[![CI](https://github.com/cmudrc/CISAT-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/cmudrc/CISAT-rs/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/cisat.svg)](https://crates.io/crates/cisat)
 [![docs.rs](https://docs.rs/cisat/badge.svg)](https://docs.rs/cisat)
-# About
-This is an implementation of the Cognitively-Inspired Simulated Annealing Teams (CISAT) Framework in Rust. 
 
-This is currently an incomplete implementation. Progress on CISAT characteristics includes:
-- [x] Multi-agency
-- [x] Organic interaction timing
-    - [x] Frequency-based interaction
-    - [x] Interaction at regular intervals
-    - [x] Interaction at specific scheduled meetings
-- [x] Quality-informed solution sharing
-- [x] Quality bias reduction
-- [x] Self-bias
-- [ ] Operational learning
-    - [ ] Multinomial reinforcement
-    - [ ] Markov chain reinforcement
-    - [ ] Hidden Markov model reinforcement
-- [ ] Locally-sensitive search
-    - [x] Geoemtric annealing schedule
-    - [ ] Cauchy annealing schedule
-    - [ ] Triki annealing schedule
-- [ ] Satisficing
+# CISAT in Rust
 
-# Usage
-Here is a basic examples of usage
+Cognitively-Inspired Simulated Annealing Teams (CISAT) models interacting search agents with operational learning, adaptive cooling, and satisficing. Includes Ackley and planar truss problems, custom problem support, and parallel execution.
+
+Requires Rust 1.87 or later.
+
+## Quick start
 
 ```rust
-use cisat::{Cohort, Parameters, problems::Ackley};
-fn main() {
-    let mut x = Cohort::<Ackley>::new(Parameters::default());
+use cisat::{problems::Ackley, Cohort, Parameters};
 
-    x.solve();
-
-    println!("{:?}", x);
-}
+let mut cohort = Cohort::<Ackley<5>>::new(Parameters::default());
+cohort.solve();
+println!("Best quality: {}", cohort.get_best_solution_so_far());
 ```
-You can also implement new problem, agent, and team types using the `Solution`, `AgentMethods`, and `TeamMethods` 
-traits, respectively. This allows significant flexibility within the basic CISAT structure.
 
-# References
-Aspects of CISAT have been published in several places. You can learn more about it here:
-1. McComb, C., Cagan, J., & Kotovsky, K. (2015). Lifting the Veil: Drawing insights about design teams from a cognitively-inspired computational model. Design Studies, 40, 119-142. doi:[10.1016/j.destud.2015.06.005](https://doi.org/10.1016/j.destud.2015.06.005). [PDF](https://github.com/THREDgroup/CISAT-rs/blob/master/literature/2015_DesignStudies_LiftingTheVeil.pdf)
-1. McComb, C., Cagan, J., & Kotovsky, K. (2016). Drawing inspiration from human design teams for better search and optimization: The heterogeneous simulated annealing teams algorithm. Journal of Mechanical Design, 138(4). doi:[10.1115/1.4032810](https://doi.org/10.1115/1.4032810). [PDF](https://github.com/THREDgroup/CISAT-rs/blob/master/literature/2016_JMD_HSAT.pdf)
-2. McComb, C., Cagan, J., & Kotovsky, K. (2017). Capturing human sequence-learning abilities in configuration design tasks through markov chains. Journal of Mechanical Design, 139(9). doi:[10.1115/1.4037185](https://doi.org/10.1115/1.4037185). [PDF](https://github.com/THREDgroup/CISAT-rs/blob/master/literature/2017_JMD_MarkovChain.pdf)
-1. McComb, C., Cagan, J., & Kotovsky, K. (2017). Optimizing design teams based on problem properties: computational team simulations and an applied empirical test. Journal of Mechanical Design, 139(4). doi:[10.1115/1.4035793](https://doi.org/10.1115/1.4035793). [PDF](https://github.com/THREDgroup/CISAT-rs/blob/master/literature/2017_JMD_OptimizingTeams.pdf)
+CISAT maximizes quality; `Ackley::objective()` returns the original minimization objective.
+
+From a checkout:
+
+```sh
+cargo run --release -- --problem ackley --teams 10 --iter 1000 --parallel
+cargo run -- --help
+```
+
+[Usage, configuration, and references](USAGE.md) · [Algorithms and assumptions](ALGORITHMS.md) · [Custom example](examples/custom_implementation.rs) · [Changelog](CHANGELOG.md)

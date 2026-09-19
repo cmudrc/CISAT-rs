@@ -1,28 +1,24 @@
 [package]
 name = "cisat"
-version = "0.2.2"
+version = "0.3.0"
 authors = ["Chris McComb <ccmcc2012@gmail.com>"]
-edition = "2018"
+edition = "2021"
+rust-version = "1.87"
 description = "Cognitively-Inspired Simulated Annealing Teams"
 readme = "README.md"
-repository = "https://github.com/THREDgroup/cisat-rs"
-homepage = "https://github.com/THREDgroup/cisat-rs"
-documentation = "https://docs.rs/cisat-rs"
+repository = "https://github.com/cmudrc/CISAT-rs"
+homepage = "https://github.com/cmudrc/CISAT-rs"
+documentation = "https://docs.rs/cisat"
 license = "MIT"
 keywords = ["simulation", "engineering-design", "teams", "agent-based-modeling"]
 categories = ["mathematics", "science", "simulation"]
-
-#[lib]
-#name            = "cisat"
-#crate-type      = ["cdylib"]
+include = ["src/**", "examples/**", "tests/**", "README.md", "USAGE.md", "ALGORITHMS.md", "CHANGELOG.md", "LICENSE", "Cargo.toml", "Cargo.lock"]
 
 [dependencies]
 rand = "0.8.3"
 rand_distr = "0.4.0"
-structopt = "0.3.21"
-indicatif = {version = "0.15.0", features = ["rayon"]}
+clap = { version = "4.5", features = ["derive"] }
 rayon = "1.5.0"
-trussx = {git="https://github.com/cmccomb/trussx"}
-
-[package.metadata.docs.rs]
-#rustdoc-args = ["--document-private-items"]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+trussx = "0.2.0"

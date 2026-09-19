@@ -45,6 +45,9 @@ where
 {
     /// This generates a new team
     fn new(parameters: Parameters) -> Self {
+        parameters
+            .validate_for_moves(S::NUMBER_OF_MOVE_OPERATORS)
+            .expect("invalid CISAT parameters");
         Team {
             agent_list: (0..parameters.number_of_agents)
                 .map(|i| A::new(i, parameters.clone()))
@@ -65,12 +68,12 @@ where
                 }
             }
             CommunicationStyle::RegularInterval { interval } => {
-                if self.iteration_number % interval == 0 {
+                if self.iteration_number.is_multiple_of(*interval) {
                     self.communicate();
                 }
             }
             CommunicationStyle::ScheduledMeetings { times } => {
-                if times.iter().any(|i| *i == self.iteration_number) {
+                if times.contains(&self.iteration_number) {
                     self.communicate();
                 }
             }
@@ -107,12 +110,11 @@ where
 
     /// This pulls out the best solution from the team
     fn get_best_solution_so_far(&mut self) -> S {
-        (0..self.parameters.number_of_agents)
-            .map(|i| self.agent_list[i].get_best_solution_so_far())
-            .collect::<Vec<S>>()
-            .into_iter()
-            .max()
-            .unwrap()
+        self.agent_list
+            .iter_mut()
+            .map(AgentMethods::get_best_solution_so_far)
+            .max_by(|a, b| a.get_quality_scalar().total_cmp(&b.get_quality_scalar()))
+            .expect("a team must contain at least one agent")
     }
 }
 

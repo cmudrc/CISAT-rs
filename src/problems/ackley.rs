@@ -1,93 +1,113 @@
-//! This is an example problem for optimizing the Ackley function
-
-use super::super::{utilities::randomness::random_uniform_vector, utilities::Solution};
+//! The standard n-dimensional Ackley minimization benchmark.
+use crate::{utilities::randomness::random_uniform_vector, Solution};
 use std::{cmp::Ordering, ops::Sub};
 
+/// Ackley search on [-32.768, 32.768]^N, represented as a maximization quality.
 #[derive(Clone, Debug)]
-/// This contains solutions for the Ackley problem
-pub struct Ackley<const NUMBER_OF_DIMENSIONS: usize> {
-    /// This contains direct objective function values
-    objective_function_value: Vec<f64>,
-    /// This contains a single quality scalar derived from objective function values
+pub struct Ackley<const NUMBER_OF_DIMENSIONS: usize = 5> {
+    /// Raw minimization objective.
+    objective_function_value: f64,
+    /// Transformed objective to maximize.
     quality_scalar: f64,
-    /// This contains the parameters
+    /// Current coordinates in the bounded domain.
     x: Vec<f64>,
 }
 
-impl<const NUMBER_OF_DIMENSIONS: usize> Solution for Ackley<{ NUMBER_OF_DIMENSIONS }> {
-    const NUMBER_OF_MOVE_OPERATORS: usize = 1;
-    const NUMBER_OF_OBJECTIVES: usize = 1;
-
-    fn new() -> Ackley<{ NUMBER_OF_DIMENSIONS }> {
-        let mut solution = Ackley {
-            objective_function_value: vec![0.0; 1],
-            x: random_uniform_vector(NUMBER_OF_DIMENSIONS, -10.0, 10.0),
+impl<const N: usize> Ackley<N> {
+    /// Construct and evaluate a point inside the benchmark domain.
+    /// Panics for zero dimensions, nonfinite coordinates, or coordinates outside the domain.
+    pub fn from_position(position: [f64; N]) -> Self {
+        assert!(N > 0, "Ackley requires at least one dimension");
+        assert!(
+            position
+                .iter()
+                .all(|x| x.is_finite() && (-32.768..=32.768).contains(x)),
+            "Ackley coordinates must be finite and in [-32.768, 32.768]"
+        );
+        let mut solution = Self {
+            x: position.to_vec(),
+            objective_function_value: 0.0,
             quality_scalar: 0.0,
         };
         solution.evaluate();
         solution
     }
+    /// Raw Ackley objective to minimize (zero at the origin).
+    pub fn objective(&self) -> f64 {
+        self.objective_function_value
+    }
+    /// Current search coordinates.
+    pub fn position(&self) -> &[f64] {
+        &self.x
+    }
+    /// Evaluate the standard dimension-normalized Ackley expression.
+    fn evaluate(&mut self) {
+        let squares = self.x.iter().map(|x| x * x).sum::<f64>() / N as f64;
+        let cosines = self
+            .x
+            .iter()
+            .map(|x| (std::f64::consts::TAU * x).cos())
+            .sum::<f64>()
+            / N as f64;
+        self.objective_function_value =
+            (-20.0 * (-0.2 * squares.sqrt()).exp() - cosines.exp() + std::f64::consts::E + 20.0)
+                .max(0.0);
+        self.quality_scalar = 20.0 + std::f64::consts::E - self.objective_function_value;
+    }
+}
 
-    fn apply_move_operator(&mut self, _move_index: usize, temperature: f64) {
-        let perturbation_arg = random_uniform_vector(
-            self.x.len(),
-            -std::f64::consts::PI / 2.0,
-            std::f64::consts::PI / 2.0,
+impl<const N: usize> Solution for Ackley<N> {
+    const NUMBER_OF_MOVE_OPERATORS: usize = 1;
+    const NUMBER_OF_OBJECTIVES: usize = 1;
+    fn new() -> Self {
+        assert!(N > 0, "Ackley requires at least one dimension");
+        let mut solution = Self {
+            x: random_uniform_vector(N, -10.0, 10.0),
+            objective_function_value: 0.0,
+            quality_scalar: 0.0,
+        };
+        solution.evaluate();
+        solution
+    }
+    fn apply_move_operator(&mut self, move_index: usize, temperature: f64) {
+        assert_eq!(move_index, 0, "Ackley has one move operator");
+        assert!(
+            temperature.is_finite() && temperature >= 0.0,
+            "step temperature must be finite and nonnegative"
         );
-        for i in 0..self.x.len() {
-            self.x[i] += perturbation_arg[i].tan() * temperature;
+        let angles =
+            random_uniform_vector(N, -std::f64::consts::FRAC_PI_2, std::f64::consts::FRAC_PI_2);
+        for (x, angle) in self.x.iter_mut().zip(angles) {
+            *x = (*x + angle.tan() * temperature).clamp(-32.768, 32.768);
         }
         self.evaluate();
     }
-
     fn get_quality_scalar(&self) -> f64 {
         self.quality_scalar
     }
-}
-
-impl<const NUMBER_OF_DIMENSIONS: usize> Ackley<{ NUMBER_OF_DIMENSIONS }> {
-    /// This function offers some functionality for evaluation
-    fn evaluate(&mut self) {
-        let n = self.x.len();
-        let mut fx = 0.0;
-        let mut square_sum = 0.0;
-        let mut cosine_sum = 0.0;
-        for xi in self.x.to_vec() {
-            square_sum += xi.powi(2);
-            cosine_sum += (2.0 * std::f64::consts::PI * xi).cos();
-        }
-        fx += -20.0 * (-0.2 * (0.5 * square_sum).sqrt()).exp();
-        fx -= (cosine_sum / (n as f64)).exp();
-        fx += std::f64::consts::E + 20.0;
-        self.objective_function_value = vec![fx; 1];
-        self.quality_scalar = 20.0 + std::f64::consts::E - fx;
+    fn satisficing_penalty(&self) -> Option<f64> {
+        Some((self.objective_function_value / (20.0 + std::f64::consts::E)).clamp(0.0, 1.0))
     }
 }
-
-impl<const NUMBER_OF_DIMENSIONS: usize> PartialEq for Ackley<{ NUMBER_OF_DIMENSIONS }> {
-    fn eq(&self, other: &Self) -> bool {
-        self.quality_scalar == other.quality_scalar
+impl<const N: usize> PartialEq for Ackley<N> {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.cmp(rhs) == Ordering::Equal
     }
 }
-
-impl<const NUMBER_OF_DIMENSIONS: usize> Eq for Ackley<{ NUMBER_OF_DIMENSIONS }> {}
-
-impl<const NUMBER_OF_DIMENSIONS: usize> PartialOrd for Ackley<{ NUMBER_OF_DIMENSIONS }> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.quality_scalar.partial_cmp(&other.quality_scalar)
+impl<const N: usize> Eq for Ackley<N> {}
+impl<const N: usize> PartialOrd for Ackley<N> {
+    fn partial_cmp(&self, rhs: &Self) -> Option<Ordering> {
+        Some(self.cmp(rhs))
     }
 }
-
-impl<const NUMBER_OF_DIMENSIONS: usize> Ord for Ackley<{ NUMBER_OF_DIMENSIONS }> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
+impl<const N: usize> Ord for Ackley<N> {
+    fn cmp(&self, rhs: &Self) -> Ordering {
+        self.quality_scalar.total_cmp(&rhs.quality_scalar)
     }
 }
-
-impl<const NUMBER_OF_DIMENSIONS: usize> Sub for Ackley<{ NUMBER_OF_DIMENSIONS }> {
+impl<const N: usize> Sub for Ackley<N> {
     type Output = f64;
-
-    fn sub(self, rhs: Self) -> Self::Output {
+    fn sub(self, rhs: Self) -> f64 {
         self.quality_scalar - rhs.quality_scalar
     }
 }
