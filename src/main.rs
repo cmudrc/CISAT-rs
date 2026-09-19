@@ -1,181 +1,196 @@
 use cisat::{
     problems::{Ackley, Structure},
-    AgentMethods, Cohort, CommunicationStyle, OperationalLearning, Parameters, Solution,
-    TeamMethods, TemperatureSchedule,
+    Cohort, CommunicationStyle, OperationalLearning, Parameters, Solution, TemperatureSchedule,
 };
-use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
-
+use clap::{Parser, ValueEnum};
 use std::time::Instant;
-use structopt::StructOpt;
 
-/// Simulates team problem-solving using the Cognitively-Inspired Simulated Annealing Teams (CISAT) framework.
-#[derive(StructOpt, Debug)]
-#[structopt(author, name = "CISAT")]
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum Problem {
+    Ackley,
+    Structure,
+}
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum Schedule {
+    Geometric,
+    Cauchy,
+    Triki,
+    None,
+}
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum Learning {
+    Multinomial,
+    Markov,
+    #[value(alias = "hiddenmarkov")]
+    HiddenMarkov,
+    None,
+}
+
+/// Simulate teams using Cognitively-Inspired Simulated Annealing Teams.
+#[derive(Parser, Debug)]
+#[command(author, version, name = "cisat")]
 struct Cli {
-    /// Makes CISAT very, very chatty
-    #[structopt(short, long)]
+    /// Print final cohort state as well as the result
+    #[arg(short, long)]
     verbose: bool,
-    /// Run teams in parallel
-    #[structopt(short = "R", long)]
+    /// Run independent teams in parallel
+    #[arg(short = 'R', long)]
     parallel: bool,
-    /// The number of teams to run
-    #[structopt(short = "T", long, default_value = "10")]
+    /// Number of teams
+    #[arg(short = 'T', long, default_value_t = 10)]
     teams: usize,
-    /// The problem to simulate solving (Ackley or Structure)
-    #[structopt(short = "P", long)]
-    problem: String,
-    /// The number of agents on each team
-    #[structopt(short = "A", long, default_value = "3")]
-    agents: usize,
-    /// The number of iterations
-    #[structopt(short = "I", long, default_value = "100")]
-    iter: usize,
-    /// The temperature schedule to use
-    #[structopt(short = "S", long, default_value = "Geometric")]
-    schedule: String,
-    /// The initial temperature
-    #[structopt(short = "t", long, default_value = "10")]
-    initial_temperature: f64,
-    /// Triki temperature coefficient
-    #[structopt(
-        short = "d",
+    /// Built-in search problem
+    #[arg(
+        short = 'P',
         long,
-        default_value = "0.1",
-        required_if("schedule", "Triki")
+        value_enum,
+        ignore_case = true,
+        default_value = "ackley"
     )]
-    pub delta: f64,
-    /// The operational learing style to use (Multinomial, Markov, HiddenMarkov, or None)
-    #[structopt(short = "L", long, default_value = "Markov")]
-    pub learning: String,
-    /// The temperature schedule to use (Geometric, Cauchy, or Triki)
-    #[structopt(short = "r", long, default_value = "0.05")]
-    pub learning_rate: f64,
-    /// The self bias value to use
-    #[structopt(short = "b", long, default_value = "1.0")]
-    pub self_bias: f64,
-    /// The quality bias value to use
-    #[structopt(short = "q", long, default_value = "1.0")]
-    pub quality_bias: f64,
-    /// The satisficing fraction to use
-    #[structopt(short = "s", long, default_value = "0.5")]
-    pub satisficing: f64,
+    problem: Problem,
+    /// Agents per team
+    #[arg(short = 'A', long, default_value_t = 3)]
+    agents: usize,
+    /// Search steps per agent
+    #[arg(short = 'I', long, default_value_t = 100)]
+    iter: usize,
+    /// Cooling schedule; none uses greedy acceptance and unit move scale
+    #[arg(
+        short = 'S',
+        long,
+        value_enum,
+        ignore_case = true,
+        default_value = "geometric"
+    )]
+    schedule: Schedule,
+    /// Initial temperature
+    #[arg(short = 't', long, default_value_t = 10.0)]
+    initial_temperature: f64,
+    /// Cooling coefficient for Cauchy or Triki
+    #[arg(short = 'd', long, default_value_t = 0.1)]
+    delta: f64,
+    /// Steps between cooling updates (Triki needs at least two for nonzero variance)
+    #[arg(long, default_value_t = 10)]
+    dwell: usize,
+    /// Operational learning mode
+    #[arg(
+        short = 'L',
+        long,
+        value_enum,
+        ignore_case = true,
+        default_value = "markov"
+    )]
+    learning: Learning,
+    /// Multiplicative reinforcement rate in [0, 1)
+    #[arg(short = 'r', long, default_value_t = 0.05)]
+    learning_rate: f64,
+    /// Weight added to an agent's own solution during sharing
+    #[arg(short = 'b', long, default_value_t = 1.0)]
+    self_bias: f64,
+    /// Uniform weight added to reduce quality bias during sharing
+    #[arg(short = 'q', long, default_value_t = 1.0)]
+    quality_bias: f64,
+    /// Fraction of temperature controlled by the problem's unmet goal
+    #[arg(short = 's', long, default_value_t = 0.5)]
+    satisficing: f64,
+    /// Probability of team communication on each step
+    #[arg(long, conflicts_with_all = ["communication_interval", "meetings"])]
+    communication_frequency: Option<f64>,
+    /// Communicate every N steps
+    #[arg(long, conflicts_with = "meetings")]
+    communication_interval: Option<usize>,
+    /// Comma-separated one-based meeting steps
+    #[arg(long, value_delimiter = ',')]
+    meetings: Option<Vec<usize>>,
 }
 
 fn main() {
-    // Parse args
-    let args = Cli::from_args();
-
-    // Match for temperature schedule
-    let learning_style = match args.learning.to_lowercase().as_str() {
-        "multinomial" => OperationalLearning::Multinomial {
+    if let Err(message) = run(Cli::parse()) {
+        eprintln!("error: {message}");
+        std::process::exit(2);
+    }
+}
+fn run(args: Cli) -> Result<(), String> {
+    let temperature_schedule = match args.schedule {
+        Schedule::Geometric => TemperatureSchedule::Geometric {
+            initial_temperature: args.initial_temperature,
+            dwell: args.dwell,
+        },
+        Schedule::Cauchy => TemperatureSchedule::Cauchy {
+            initial_temperature: args.initial_temperature,
+            delta: args.delta,
+            dwell: args.dwell,
+        },
+        Schedule::Triki => TemperatureSchedule::Triki {
+            initial_temperature: args.initial_temperature,
+            delta: args.delta,
+            dwell: args.dwell,
+        },
+        Schedule::None => TemperatureSchedule::None,
+    };
+    let operational_learning = match args.learning {
+        Learning::Multinomial => OperationalLearning::Multinomial {
             learning_rate: args.learning_rate,
             initial_learning_matrix: vec![],
         },
-        "markov" => OperationalLearning::Markov {
+        Learning::Markov => OperationalLearning::Markov {
             learning_rate: args.learning_rate,
             initial_learning_matrix: vec![],
         },
-        "hiddenmarkov" => OperationalLearning::HiddenMarkov {
+        Learning::HiddenMarkov => OperationalLearning::HiddenMarkov {
             learning_rate: args.learning_rate,
             initial_transition_matrix: vec![],
             initial_emission_matrix: vec![],
         },
-        "none" => OperationalLearning::None,
-        &_ => panic!(
-            "{} is not a valid option for --learning",
-            args.learning.as_str()
-        ),
+        Learning::None => OperationalLearning::None,
     };
-
-    // Match for learning style
-    let temperature_schedule = match args.schedule.to_lowercase().as_str() {
-        "geometric" => TemperatureSchedule::Geometric {
-            initial_temperature: args.initial_temperature,
-            dwell: 1,
-        },
-        "cauchy" => TemperatureSchedule::Cauchy {
-            initial_temperature: args.initial_temperature,
-            delta: 1.0,
-            dwell: 1,
-        },
-        "triki" => TemperatureSchedule::Triki {
-            initial_temperature: args.initial_temperature,
-            dwell: 1,
-            delta: args.delta,
-        },
-        "none" => TemperatureSchedule::None,
-        &_ => panic!(
-            "{} is not a valid option for --schedule",
-            args.schedule.as_str()
-        ),
+    let communication = if let Some(frequency) = args.communication_frequency {
+        CommunicationStyle::ConstantFrequency { frequency }
+    } else if let Some(interval) = args.communication_interval {
+        CommunicationStyle::RegularInterval { interval }
+    } else if let Some(times) = &args.meetings {
+        CommunicationStyle::ScheduledMeetings {
+            times: times.clone(),
+        }
+    } else {
+        CommunicationStyle::None
     };
-
-    // Things
-    println!(
-        "Solving the {} problem with following parameters",
-        args.problem
-    );
-    // Generate parameters struct
-    let params = Parameters {
+    let parameters = Parameters {
         number_of_teams: args.teams,
         number_of_agents: args.agents,
         number_of_iterations: args.iter,
         temperature_schedule,
-        operational_learning: learning_style,
-        communication: CommunicationStyle::None,
+        operational_learning,
+        communication,
         self_bias: args.self_bias,
         quality_bias: args.quality_bias,
         satisficing_fraction: args.satisficing,
     };
-
-    println!("{}", params);
-
-    // match for problem and run
-
-    match args.problem.to_lowercase().as_str() {
-        "ackley" => {
-            let cisat = Cohort::<Ackley<5>>::new(params);
-            run_all(cisat, args);
-        }
-        "structure" => {
-            let cisat = Cohort::<Structure>::new(params);
-            run_all(cisat, args);
-        }
-        &_ => panic!(
-            "{} is not a valid option for --problem",
-            args.schedule.as_str()
-        ),
+    parameters.validate()?;
+    println!("Solving {:?} with:\n{parameters}", args.problem);
+    match args.problem {
+        Problem::Ackley => run_all::<Ackley<5>>(parameters, &args),
+        Problem::Structure => run_all::<Structure>(parameters, &args),
     }
+    Ok(())
 }
-
-fn run_all<S: Solution, A: AgentMethods<S>, T: TeamMethods<S, A>>(
-    mut cisat: Cohort<S, A, T>,
-    args: Cli,
-) {
+fn run_all<S: Solution>(parameters: Parameters, args: &Cli) {
     let started = Instant::now();
+    let mut cohort = Cohort::<S>::new(parameters);
     if args.parallel {
-        let bar = ProgressBar::new_spinner();
-        bar.set_style(ProgressStyle::default_bar().template("{spinner} {elapsed_precise} elapsed"));
-        bar.enable_steady_tick(100);
-        cisat.solve();
-        bar.finish_and_clear();
+        cohort.solve();
     } else {
-        let bar = ProgressBar::new(args.iter as u64);
-        bar.set_style(
-            ProgressStyle::default_bar()
-                .template("[{msg}] {wide_bar} [{percent}%, ~{eta} remaining]"),
-        );
-        bar.set_message("Starting...");
-        for _ in 1..args.iter {
-            cisat.iterate();
-            bar.set_message(format!("Best: {:.2}", cisat.get_best_solution_so_far()).as_str());
-            bar.inc(1);
+        for _ in 0..args.iter {
+            cohort.iterate();
         }
-        bar.finish_and_clear();
     }
     println!(
-        "Done! The simulation took {}, and the best solution found was {:.2}.",
-        HumanDuration(started.elapsed()),
-        cisat.get_best_solution_so_far()
+        "Done! {} iterations per agent in {:.3}s; best quality: {:.8}.",
+        args.iter,
+        started.elapsed().as_secs_f64(),
+        cohort.get_best_solution_so_far()
     );
+    if args.verbose {
+        println!("{cohort:#?}");
+    }
 }
